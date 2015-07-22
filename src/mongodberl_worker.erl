@@ -86,7 +86,7 @@ init([MongoInfo]) ->
 	{stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call({get, Item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
-	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, logic_util:to_bin(binary_to_list(Key))}),
+	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, to_bin(binary_to_list(Key))}),
 	Reply = case bson:lookup(Item, Doc) of
 		         {Value} ->
 			         io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
@@ -166,3 +166,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+to_bin(L) ->
+	to_bin(L, []).
+to_bin([], Acc) ->
+	iolist_to_binary(lists:reverse(Acc));
+to_bin([C1, C2 | Rest], Acc) ->
+	to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
+
+dehex(C) when C >= $0, C =< $9 ->
+	C - $0;
+dehex(C) when C >= $a, C =< $f ->
+	C - $a + 10;
+dehex(C) when C >= $A, C =< $F ->
+	C - $A + 10.
