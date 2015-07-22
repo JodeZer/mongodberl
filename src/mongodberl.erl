@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1, get_seckey/2]).
+-export([start_link/1, get_value_from_mongo/3]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -22,8 +22,8 @@
 %%%===================================================================
 %%% API functions
 %%%===================================================================
-get_seckey(PoolPid, Appkey) ->
-	execute(PoolPid, {get_seckey, Appkey}).
+get_value_from_mongo(PoolPid, item, Key) ->
+	execute(PoolPid, {get, item, Key}).
 
 
 %%--------------------------------------------------------------------

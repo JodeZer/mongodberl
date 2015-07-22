@@ -85,14 +85,14 @@ init([MongoInfo]) ->
 	{stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
 	{stop, Reason :: term(), NewState :: #state{}}).
 
-handle_call({get_seckey, Appkey}, _From, #state{mongodb_pid = Conn}=State) ->
-	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, logic_util:to_bin(binary_to_list(Appkey))}),
-	Reply = case bson:lookup(seckey, Doc) of
+handle_call({get, item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
+	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, logic_util:to_bin(binary_to_list(Key))}),
+	Reply = case bson:lookup(item, Doc) of
 		         {Value} ->
 			         io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
 			         {true, Value};
 		         _Else ->
-			         io:format("find seckey from mongodb failed ~p, ~p~n", [Appkey, _Else]),
+			         io:format("find seckey from mongodb failed ~p, ~p~n", [Key, _Else]),
 			         {false, _Else}
 	         end,
 	{reply, Reply, State};
