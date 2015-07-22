@@ -22,8 +22,8 @@
 %%%===================================================================
 %%% API functions
 %%%===================================================================
-get_value_from_mongo(PoolPid, item, Key) ->
-	execute(PoolPid, {get, item, Key}).
+get_value_from_mongo(PoolPid, Item, Key) ->
+	execute(PoolPid, {get, Item, Key}).
 
 
 %%--------------------------------------------------------------------

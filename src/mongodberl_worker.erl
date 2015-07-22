@@ -85,9 +85,9 @@ init([MongoInfo]) ->
 	{stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
 	{stop, Reason :: term(), NewState :: #state{}}).
 
-handle_call({get, item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
+handle_call({get, Item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
 	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, logic_util:to_bin(binary_to_list(Key))}),
-	Reply = case bson:lookup(item, Doc) of
+	Reply = case bson:lookup(Item, Doc) of
 		         {Value} ->
 			         io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
 			         {true, Value};
