@@ -77,7 +77,7 @@ init([Args]) ->
 
 	PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
 		PoolArgs = [{name, {local, Name}},
-			{worker_module, erest_mongodb_worker}] ++ SizeArgs,
+			{worker_module, mongodberl_worker}] ++ SizeArgs,
 		poolboy:child_spec(Name, PoolArgs, WorkerArgs)
 	end, Pools),
 
