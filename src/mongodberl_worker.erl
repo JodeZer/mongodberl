@@ -66,6 +66,7 @@ init([MongoInfo]) ->
 	[{Host, Port, Database}] = MongoInfo,
 	process_flag(trap_exit, true),
 	{ok, Connection} = mongo:connect(Host, Port, list_to_binary(Database)),
+	erlang:monitor(process, Connection),
 	io:format("mongob init: ~p~n", [Connection]),
 	{ok, #state{mongodb_pid = Connection}}.
 
@@ -128,6 +129,11 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: #state{}} |
 	{noreply, NewState :: #state{}, timeout() | hibernate} |
 	{stop, Reason :: term(), NewState :: #state{}}).
+handle_info({'DOWN', _Ref, _Type, Pid, _Info}, State) ->
+	io:format("mongodb down: ~p~n", [Pid]),
+	exit(self(), kill),
+	{noreply, State};
+
 handle_info(_Info, State) ->
 	io:format("handle info, ~p~n", [_Info]),
 	{noreply, State}.
