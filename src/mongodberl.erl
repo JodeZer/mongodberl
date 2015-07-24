@@ -19,12 +19,14 @@
 
 -define(SERVER, ?MODULE).
 
+-compile({parse_transform, lager_transform}).
+-include_lib("elog/include/elog.hrl").
+
 %%%===================================================================
 %%% API functions
 %%%===================================================================
 get_value_from_mongo(PoolPid, Item, Key) ->
 	execute(PoolPid, {get, Item, Key}).
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -88,7 +90,43 @@ init([Args]) ->
 %%%===================================================================
 execute(PoolPid, Cmd) ->
 	poolboy:transaction(PoolPid, fun(Worker) ->
-		gen_server:call(Worker, Cmd)
+		case gen_server:call(Worker, connect) of
+			{ok, Pid} ->
+				case Cmd of
+					{get, Item, Key} ->
+						try
+							{Doc} = mongo:find_one(Pid, <<"apps">>, {<<"_id">>, to_bin(binary_to_list(Key))}),
+							case bson:lookup(Item, Doc) of
+								{Value} ->
+									?DEBUG("worker: ~p~n ~p~n", [Value, Pid]),
+									{true, Value};
+								_Else ->
+									?ERROR("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
+									{false, _Else}
+							end
+						catch _:_X ->
+							{false, <<"fail">>}
+						end;
+					_ ->
+						{false, <<"cmd_not_supported">>}
+				end;
+			Error ->
+				Error
+		end
 	end).
+
+to_bin(L) ->
+	to_bin(L, []).
+to_bin([], Acc) ->
+	iolist_to_binary(lists:reverse(Acc));
+to_bin([C1, C2 | Rest], Acc) ->
+	to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
+
+dehex(C) when C >= $0, C =< $9 ->
+	C - $0;
+dehex(C) when C >= $a, C =< $f ->
+	C - $a + 10;
+dehex(C) when C >= $A, C =< $F ->
+	C - $A + 10.
 
 

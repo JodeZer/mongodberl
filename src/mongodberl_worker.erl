@@ -25,7 +25,8 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-	mongodb_pid
+	mongodb_pid,
+	mongodb_args
 }).
 
 
@@ -63,19 +64,8 @@ start_link(MongoInfo) ->
 	{ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
 	{stop, Reason :: term()} | ignore).
 init([MongoInfo]) ->
-	[{Host, Port, Database}] = MongoInfo,
 	process_flag(trap_exit, true),
-	Pid = case mongo:connect(Host, Port, list_to_binary(Database)) of
-		     {ok, Conn} ->
-%% 			     TODO: 移除或替换打印。
-			     io:format("mongob init:~p~n", [Conn]),
-			     Conn;
-			 Else ->
-				 io:format("connect mongb fail.~p~n", [Else]),
-				 timer:kill_after(timer:seconds(10), self()),
-				 self()
-	     end,
-	{ok, #state{mongodb_pid = Pid}}.
+	{ok, #state{mongodb_args = MongoInfo}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -93,21 +83,18 @@ init([MongoInfo]) ->
 	{stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
 	{stop, Reason :: term(), NewState :: #state{}}).
 
-handle_call({get, Item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
-	Reply = try
-		       {Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, to_bin(binary_to_list(Key))}),
-		       case bson:lookup(Item, Doc) of
-			       {Value} ->
-				       io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
-				       {true, Value};
-			       _Else ->
-				       io:format("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
-				       {false, _Else}
-		       end
-	       catch _:_X ->
-		       {false, <<"fail">>}
-	       end,
-	{reply, Reply, State};
+handle_call(connect, _From, State=#state{mongodb_pid = undefined}) ->
+	[{Host, Port, Database}] = State#state.mongodb_args,
+	case mongo:connect(Host, Port, list_to_binary(Database)) of
+		{ok, Pid} ->
+			erlang:monitor(process, Pid),
+			{reply, {ok, Pid}, State#state{mongodb_pid = Pid}};
+		{error, Error} ->
+			{reply, {error, Error}, State}
+	end;
+
+handle_call(connect, _From, State=#state{mongodb_pid = Pid}) ->
+	{reply, {ok, Pid}, State};
 
 handle_call(_Request, _From, State) ->
 	{reply, ok, State}.
@@ -140,19 +127,13 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: #state{}} |
 	{noreply, NewState :: #state{}, timeout() | hibernate} |
 	{stop, Reason :: term(), NewState :: #state{}}).
-handle_info({'DOWN', Ref, _Type, Pid, Info}, State) ->
-	io:format("mongodb down:~p,Info:~p~n", [Pid, Info]),
-	erlang:demonitor(Ref),
-	timer:kill_after(timer:seconds(30), self()),
-	{noreply, State};
+handle_info({'DOWN', _Ref, _Type, _Pid, _Info}, State) ->
+	{noreply, State#state{mongodb_pid = undefined}};
 
-handle_info({'EXIT', Pid, Info}, State) ->
-	io:format("mongodb down:~p,info:~p~n", [Pid, Info]),
-	timer:kill_after(timer:seconds(30), self()),
-	{noreply, State};
+handle_info({'EXIT', _Pid, _Info}, State) ->
+	{noreply, State#state{mongodb_pid = undefined}};
 
 handle_info(_Info, State) ->
-	io:format("handle info:~p~n", [_Info]),
 	{noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -169,7 +150,6 @@ handle_info(_Info, State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
 	State :: #state{}) -> term()).
 terminate(_Reason, _State) ->
-	io:format("mongo terminate~n"),
 	ok.
 
 %%--------------------------------------------------------------------
@@ -189,16 +169,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-to_bin(L) ->
-	to_bin(L, []).
-to_bin([], Acc) ->
-	iolist_to_binary(lists:reverse(Acc));
-to_bin([C1, C2 | Rest], Acc) ->
-	to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
-
-dehex(C) when C >= $0, C =< $9 ->
-	C - $0;
-dehex(C) when C >= $a, C =< $f ->
-	C - $a + 10;
-dehex(C) when C >= $A, C =< $F ->
-	C - $A + 10.
