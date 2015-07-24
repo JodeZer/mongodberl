@@ -65,10 +65,17 @@ start_link(MongoInfo) ->
 init([MongoInfo]) ->
 	[{Host, Port, Database}] = MongoInfo,
 	process_flag(trap_exit, true),
-	{ok, Connection} = mongo:connect(Host, Port, list_to_binary(Database)),
-	erlang:monitor(process, Connection),
-	io:format("mongob init: ~p~n", [Connection]),
-	{ok, #state{mongodb_pid = Connection}}.
+	Pid = case mongo:connect(Host, Port, list_to_binary(Database)) of
+		     {ok, Conn} ->
+%% 			     TODO: 移除或替换打印。
+			     io:format("mongob init:~p~n", [Conn]),
+			     Conn;
+			 Else ->
+				 io:format("connect mongb fail.~p~n", [Else]),
+				 timer:kill_after(timer:seconds(10), self()),
+				 self()
+	     end,
+	{ok, #state{mongodb_pid = Pid}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -87,15 +94,19 @@ init([MongoInfo]) ->
 	{stop, Reason :: term(), NewState :: #state{}}).
 
 handle_call({get, Item, Key}, _From, #state{mongodb_pid = Conn}=State) ->
-	{Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, to_bin(binary_to_list(Key))}),
-	Reply = case bson:lookup(Item, Doc) of
-		         {Value} ->
-			         io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
-			         {true, Value};
-		         _Else ->
-			         io:format("find seckey from mongodb failed ~p, ~p~n", [Key, _Else]),
-			         {false, _Else}
-	         end,
+	Reply = try
+		       {Doc} = mongo:find_one(Conn, <<"apps">>, {<<"_id">>, to_bin(binary_to_list(Key))}),
+		       case bson:lookup(Item, Doc) of
+			       {Value} ->
+				       io:format("worker: ~p~n ~p~n", [Value, State#state.mongodb_pid]),
+				       {true, Value};
+			       _Else ->
+				       io:format("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
+				       {false, _Else}
+		       end
+	       catch _:_X ->
+		       {false, <<"fail">>}
+	       end,
 	{reply, Reply, State};
 
 handle_call(_Request, _From, State) ->
@@ -129,13 +140,19 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: #state{}} |
 	{noreply, NewState :: #state{}, timeout() | hibernate} |
 	{stop, Reason :: term(), NewState :: #state{}}).
-handle_info({'DOWN', _Ref, _Type, Pid, _Info}, State) ->
-	io:format("mongodb down: ~p~n", [Pid]),
-	exit(self(), kill),
+handle_info({'DOWN', Ref, _Type, Pid, Info}, State) ->
+	io:format("mongodb down:~p,Info:~p~n", [Pid, Info]),
+	erlang:demonitor(Ref),
+	timer:kill_after(timer:seconds(30), self()),
+	{noreply, State};
+
+handle_info({'EXIT', Pid, Info}, State) ->
+	io:format("mongodb down:~p,info:~p~n", [Pid, Info]),
+	timer:kill_after(timer:seconds(30), self()),
 	{noreply, State};
 
 handle_info(_Info, State) ->
-	io:format("handle info, ~p~n", [_Info]),
+	io:format("handle info:~p~n", [_Info]),
 	{noreply, State}.
 
 %%--------------------------------------------------------------------
