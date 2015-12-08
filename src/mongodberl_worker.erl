@@ -67,17 +67,11 @@ start_link(MongoInfo) ->
 -spec(init(Args :: term()) ->
 	{ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
 	{stop, Reason :: term()} | ignore).
-%%--------------------------------
-%%[MongoInfo] will change to a replset,but code is not changed
-%%---------------------------------
-init([[{Host,Port,MongoDatabase}]]=MongoInfo) ->
-	%io:format("mongodberl_worker: single init arg:~p~n",[MongoInfo]),
-	process_flag(trap_exit, true),%%should add mongoc's pid to the record
-	{ok, #state{mongodb_single_args = {Host,Port},mongodb_dbName = MongoDatabase}};%%{ok,Pid}=mongoc:start_link(),
-init([[{ReplSet,MongoDatabase}]]=MongoInfo) -> %[{ReplSet,MongoDatabase}=MongoInfo]
-	%io:format("mongodberl_worker: repl init arg:~p~n",[MongoInfo]),
+init([[{Host,Port,MongoDatabase}]]=_MongoInfo) ->
 	process_flag(trap_exit, true),
-	%%{ok,Pid}=mongoc:start_link(),
+	{ok, #state{mongodb_single_args = {Host,Port},mongodb_dbName = MongoDatabase}};%%{ok,Pid}=mongoc:start_link(),
+init([[{ReplSet,MongoDatabase}]]=_MongoInfo) ->
+	process_flag(trap_exit, true),
 	{ok, #state{mongodb_replset = ReplSet,mongodb_dbName = MongoDatabase}}.
 
 %%--------------------------------------------------------------------
@@ -99,28 +93,18 @@ init([[{ReplSet,MongoDatabase}]]=MongoInfo) -> %[{ReplSet,MongoDatabase}=MongoIn
 %%add
 %%----------------------------------------------------------
 handle_call(rs_connect,_From,State=#state{mongodb_rsConn = undefined,mongodb_pid = undefined,mongodb_replset = ReplSet,mongodb_dbName = MongoDatabase}) ->
-	%io:format("come worker handle_call rs_connect ~p~n",[State]),
 	{ok,Pid}=mongoc:start_link(),
-	%io:format("come worker handle_call rs_connect Pid startLink~p~n",[Pid]),
 	case mongoc:rs_connect(Pid,ReplSet,[]) of
 		 {ok,RsConn} ->
 			 {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn,mongodb_pid = Pid}}
 	 end;
 handle_call(rs_connect,_From,State=#state{mongodb_rsConn = RSConn,mongodb_pid = Pid,mongodb_dbName = MongoDatabase}) ->
 	{reply, {ok, Pid,RSConn,MongoDatabase},State};
-%%----------------------------------------------------------
-%%how to make mongo:rs_connect to be a pid ???don't need to
-%%----------------------------------------------------------
 handle_call(connect, _From, State=#state{mongodb_pid = undefined}) ->
 	{Host, Port} = State#state.mongodb_single_args,
 	Database = State#state.mongodb_dbName,
-	%%--------------------------------------------------
-	%%case mongoc:connect(Host,Port,...) of
-	%%{ok,Conn} ->
-	%%--------------------------------------------------
 	case mongoc:connect(Host, Port, list_to_binary(Database)) of
 		{ok, Conn} ->
-			%erlang:monitor(process, Pid),
 			{reply, {ok, Conn}, State#state{mongodb_singleConn = Conn}};
 		{error, Error} ->
 			{reply, {error, Error}, State}

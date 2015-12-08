@@ -64,8 +64,7 @@ start_link(Args) ->
 %%-----------------------------------------------
 %%change Args to contain a Replset
 %%------------------------------------------------
-init([{replset,Param}] = [Args]) ->
-	%io:format("mongodberl: repl init arg:~p~n",[Args]),
+init([{replset,Param}] = [_Args]) ->
 	{PoolName,ReplSet,MongoDbDatabase,MongodbConnNum} =Param,
 	RestartStrategy = one_for_one,
 	MaxRestarts = 1000,
@@ -78,7 +77,7 @@ init([{replset,Param}] = [Args]) ->
 			{size, MongodbConnNum},
 			{max_overflow, 30}
 		],
-			[{ReplSet, MongoDbDatabase}]%%[{ReplSet,MongoDbDatabase}]
+			[{ReplSet, MongoDbDatabase}]
 		}
 	],
 
@@ -89,10 +88,7 @@ init([{replset,Param}] = [Args]) ->
 												end, Pools),
 
 	{ok, {SupFlags, PoolSpecs}};
-init([{single,Param}] = [Args]) ->
-	%io:format("mongodberl: single init arg:~p~n",[Args]),
-	%%{PoolName,ReplSet,MongoDbDatabase,MongodbCOnnNum}=Args
-	%%{ReplNameBin,HostList}=ReplSet
+init([{single,Param}] = [_Args]) ->
 	{PoolName, MongoDbHost, MongoDbPort, MongoDbDatabase, MongodbConnNum} = Param,
 	RestartStrategy = one_for_one,
 	MaxRestarts = 1000,
@@ -121,19 +117,14 @@ init([{single,Param}] = [Args]) ->
 %%% Internal functions
 %%%===================================================================
 execute(PoolPid, Cmd) ->
-	%io:format("mongodberl:execute PoolPid ~p Cmd ~p~n",[PoolPid,Cmd]),
-	poolboy:transaction(PoolPid, fun(Worker) ->%%gen_server:call(Wroker,rs_connect)
-		case gen_server:call(Worker, rs_connect) of%tag:call的返回值是pid,因为Handlecast的返回值决定，如果放回{ok,Connection}，怎么处理
-			{ok,Pid,RsConn,DB} ->%%{ok,Pid,RsConn}
-				%io:format("rs_connect success, RsConn ~p",[RsConn]),
+	poolboy:transaction(PoolPid, fun(Worker) ->
+		case gen_server:call(Worker, rs_connect) of
+			{ok,Pid,RsConn,DB} ->
 				case Cmd of
 					{get, Item, Key} ->
-						try%%mongoc:find_one(Pid,{db,mongoc:primary(Pid,RsConn)},....,.....)
-							%io:format("before find!!!!~n"),
+						try
 							{ok,PrimConn}=mongoc:primary(Pid,RsConn),
-							%io:format("primconn!!!!~p~n",[PrimConn]),
-							{ok,Doc} = mongoc:find_one(Pid, {DB,PrimConn},apps, {'_id', binary_to_list(Key)}),
-							%io:format("find Doc~p~n",[Doc]),
+							{ok,{Doc}} = mongoc:find_one(Pid, {DB,PrimConn},apps, {to_bin(binary_to_list(Key))}),
 							case bson:lookup(Item, Doc) of
 								{Value} ->
 									?DEBUG("worker: ~p~n ~p~n", [Value, Pid]),
