@@ -96,7 +96,9 @@ handle_call(rs_connect,_From,State=#state{mongodb_rsConn = undefined,mongodb_pid
 	{ok,Pid}=mongoc:start_link(),
 	case mongoc:rs_connect(Pid,ReplSet,[]) of
 		 {ok,RsConn} ->
-			 {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn,mongodb_pid = Pid}}
+			 {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn,mongodb_pid = Pid}};
+			{error,Reason} ->
+				{reply,{error,Reason},State}
 	 end;
 handle_call(rs_connect,_From,State=#state{mongodb_rsConn = RSConn,mongodb_pid = Pid,mongodb_dbName = MongoDatabase}) ->
 	{reply, {ok, Pid,RSConn,MongoDatabase},State};
