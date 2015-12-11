@@ -16,21 +16,21 @@
 
 %% gen_server callbacks
 -export([init/1,
-	handle_call/3,
-	handle_cast/2,
-	handle_info/2,
-	terminate/2,
-	code_change/3]).
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3]).
 
 -define(SERVER, ?MODULE).
 
 -record(state, {
-	mongodb_pid,
-	mongodb_single_args,
-	mongodb_replset,
-	mongodb_rsConn,
-	mongodb_singleConn,
-	mongodb_dbName
+    mongodb_pid,
+    mongodb_single_args,
+    mongodb_replset,
+    mongodb_rsConn,
+    mongodb_singleConn,
+    mongodb_dbName
 }).
 
 
@@ -45,9 +45,9 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec(start_link(Args :: term()) ->
-	{ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
+    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link(MongoInfo) ->
-	gen_server:start_link(?MODULE, [MongoInfo], []).
+    gen_server:start_link(?MODULE, [MongoInfo], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -65,14 +65,14 @@ start_link(MongoInfo) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(init(Args :: term()) ->
-	{ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
-	{stop, Reason :: term()} | ignore).
-init([[{Host,Port,MongoDatabase}]]=_MongoInfo) ->
-	process_flag(trap_exit, true),
-	{ok, #state{mongodb_single_args = {Host,Port},mongodb_dbName = MongoDatabase}};%%{ok,Pid}=mongoc:start_link(),
-init([[{ReplSet,MongoDatabase}]]=_MongoInfo) ->
-	process_flag(trap_exit, true),
-	{ok, #state{mongodb_replset = ReplSet,mongodb_dbName = MongoDatabase}}.
+    {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
+    {stop, Reason :: term()} | ignore).
+init([[{Host, Port, MongoDatabase}]] = _MongoInfo) ->
+    process_flag(trap_exit, true),
+    {ok, #state{mongodb_single_args = {Host, Port}, mongodb_dbName = MongoDatabase}};%%{ok,Pid}=mongoc:start_link(),
+init([[{ReplSet, MongoDatabase}]] = _MongoInfo) ->
+    process_flag(trap_exit, true),
+    {ok, #state{mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -82,41 +82,41 @@ init([[{ReplSet,MongoDatabase}]]=_MongoInfo) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(handle_call(Request :: term(), From :: {pid(), Tag :: term()},
-	State :: #state{}) ->
-	{reply, Reply :: term(), NewState :: #state{}} |
-	{reply, Reply :: term(), NewState :: #state{}, timeout() | hibernate} |
-	{noreply, NewState :: #state{}} |
-	{noreply, NewState :: #state{}, timeout() | hibernate} |
-	{stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
-	{stop, Reason :: term(), NewState :: #state{}}).
+    State :: #state{}) ->
+    {reply, Reply :: term(), NewState :: #state{}} |
+    {reply, Reply :: term(), NewState :: #state{}, timeout() | hibernate} |
+    {noreply, NewState :: #state{}} |
+    {noreply, NewState :: #state{}, timeout() | hibernate} |
+    {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
+    {stop, Reason :: term(), NewState :: #state{}}).
 %%----------------------------------------------------------
 %%add
 %%----------------------------------------------------------
-handle_call(rs_connect,_From,State=#state{mongodb_rsConn = undefined,mongodb_pid = undefined,mongodb_replset = ReplSet,mongodb_dbName = MongoDatabase}) ->
-	{ok,Pid}=mongoc:start_link(),
-	case mongoc:rs_connect(Pid,ReplSet,[]) of
-		 {ok,RsConn} ->
-			 {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn,mongodb_pid = Pid}};
-			{error,Reason} ->
-				{reply,{error,Reason},State}
-	 end;
-handle_call(rs_connect,_From,State=#state{mongodb_rsConn = RSConn,mongodb_pid = Pid,mongodb_dbName = MongoDatabase}) ->
-	{reply, {ok, Pid,RSConn,MongoDatabase},State};
-handle_call(connect, _From, State=#state{mongodb_pid = undefined}) ->
-	{Host, Port} = State#state.mongodb_single_args,
-	Database = State#state.mongodb_dbName,
-	case mongoc:connect(Host, Port, list_to_binary(Database)) of
-		{ok, Conn} ->
-			{reply, {ok, Conn}, State#state{mongodb_singleConn = Conn}};
-		{error, Error} ->
-			{reply, {error, Error}, State}
-	end;
+handle_call(rs_connect, _From, State = #state{mongodb_rsConn = undefined, mongodb_pid = undefined, mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase}) ->
+    {ok, Pid} = mongoc:start_link(),
+    case mongoc:rs_connect(Pid, ReplSet, []) of
+        {ok, RsConn} ->
+            {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn, mongodb_pid = Pid}};
+        {error, Reason} ->
+            {reply, {error, Reason}, State}
+    end;
+handle_call(rs_connect, _From, State = #state{mongodb_rsConn = RSConn, mongodb_pid = Pid, mongodb_dbName = MongoDatabase}) ->
+    {reply, {ok, Pid, RSConn, MongoDatabase}, State};
+handle_call(connect, _From, State = #state{mongodb_pid = undefined}) ->
+    {Host, Port} = State#state.mongodb_single_args,
+    Database = State#state.mongodb_dbName,
+    case mongoc:connect(Host, Port, list_to_binary(Database)) of
+        {ok, Conn} ->
+            {reply, {ok, Conn}, State#state{mongodb_singleConn = Conn}};
+        {error, Error} ->
+            {reply, {error, Error}, State}
+    end;
 
-handle_call(connect, _From, State=#state{mongodb_pid = Pid}) ->
-	{reply, {ok, Pid}, State};
+handle_call(connect, _From, State = #state{mongodb_pid = Pid}) ->
+    {reply, {ok, Pid}, State};
 
 handle_call(_Request, _From, State) ->
-	{reply, ok, State}.
+    {reply, ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -126,11 +126,11 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(handle_cast(Request :: term(), State :: #state{}) ->
-	{noreply, NewState :: #state{}} |
-	{noreply, NewState :: #state{}, timeout() | hibernate} |
-	{stop, Reason :: term(), NewState :: #state{}}).
+    {noreply, NewState :: #state{}} |
+    {noreply, NewState :: #state{}, timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: #state{}}).
 handle_cast(_Request, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -143,17 +143,17 @@ handle_cast(_Request, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(handle_info(Info :: timeout() | term(), State :: #state{}) ->
-	{noreply, NewState :: #state{}} |
-	{noreply, NewState :: #state{}, timeout() | hibernate} |
-	{stop, Reason :: term(), NewState :: #state{}}).
+    {noreply, NewState :: #state{}} |
+    {noreply, NewState :: #state{}, timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: #state{}}).
 handle_info({'DOWN', _Ref, _Type, _Pid, _Info}, State) ->
-	{noreply, State#state{mongodb_pid = undefined}};
+    {noreply, State#state{mongodb_pid = undefined}};
 
 handle_info({'EXIT', _Pid, _Info}, State) ->
-	{noreply, State#state{mongodb_pid = undefined}};
+    {noreply, State#state{mongodb_pid = undefined}};
 
 handle_info(_Info, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -167,9 +167,9 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
-	State :: #state{}) -> term()).
+    State :: #state{}) -> term()).
 terminate(_Reason, _State) ->
-	ok.
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -180,10 +180,10 @@ terminate(_Reason, _State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(code_change(OldVsn :: term() | {down, term()}, State :: #state{},
-	Extra :: term()) ->
-	{ok, NewState :: #state{}} | {error, Reason :: term()}).
+    Extra :: term()) ->
+    {ok, NewState :: #state{}} | {error, Reason :: term()}).
 code_change(_OldVsn, State, _Extra) ->
-	{ok, State}.
+    {ok, State}.
 
 %%%===================================================================
 %%% Internal functions

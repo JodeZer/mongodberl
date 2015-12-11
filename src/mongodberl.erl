@@ -26,7 +26,7 @@
 %%% API functions
 %%%===================================================================
 get_value_from_mongo(PoolPid, Item, Key) ->
-	execute(PoolPid, {get, Item, Key}).
+    execute(PoolPid, {get, Item, Key}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -35,10 +35,10 @@ get_value_from_mongo(PoolPid, Item, Key) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(start_link(Args :: term()) ->
-	{ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
+    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link(Args) ->
-	io:format("mongodberl:start_link arg:~p~n",[Args]),
-	supervisor:start_link({local, ?SERVER}, ?MODULE, [Args]).
+    io:format("mongodberl:start_link arg:~p~n", [Args]),
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [Args]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -55,107 +55,108 @@ start_link(Args) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec(init(Args :: term()) ->
-	{ok, {SupFlags :: {RestartStrategy :: supervisor:strategy(),
-		MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
-		[ChildSpec :: supervisor:child_spec()]
-	}} |
-	ignore |
-	{error, Reason :: term()}).
+    {ok, {SupFlags :: {RestartStrategy :: supervisor:strategy(),
+        MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
+        [ChildSpec :: supervisor:child_spec()]
+    }} |
+    ignore |
+    {error, Reason :: term()}).
 %%-----------------------------------------------
 %%change Args to contain a Replset
 %%------------------------------------------------
-init([{replset,Param}] = [_Args]) ->
-	{PoolName,ReplSet,MongoDbDatabase,MongodbConnNum} =Param,
-	RestartStrategy = one_for_one,
-	MaxRestarts = 1000,
-	MaxSecondsBetweenRestarts = 3600,
+init([{replset, Param}] = [_Args]) ->
+    {PoolName, ReplSet, MongoDbDatabase, MongodbConnNum} = Param,
+    RestartStrategy = one_for_one,
+    MaxRestarts = 1000,
+    MaxSecondsBetweenRestarts = 3600,
 
-	SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
+    SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 
-	Pools = [
-		{PoolName, [
-			{size, MongodbConnNum},
-			{max_overflow, 30}
-		],
-			[{ReplSet, MongoDbDatabase}]
-		}
-	],
+    Pools = [
+        {PoolName, [
+            {size, MongodbConnNum},
+            {max_overflow, 30}
+        ],
+            [{ReplSet, MongoDbDatabase}]
+        }
+    ],
 
-	PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
-		PoolArgs = [{name, {local, Name}},
-			{worker_module, mongodberl_worker}] ++ SizeArgs,
-		poolboy:child_spec(Name, PoolArgs, WorkerArgs)
-												end, Pools),
+    PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
+        PoolArgs = [{name, {local, Name}},
+            {worker_module, mongodberl_worker}] ++ SizeArgs,
+        poolboy:child_spec(Name, PoolArgs, WorkerArgs)
+                          end, Pools),
 
-	{ok, {SupFlags, PoolSpecs}};
-init([{single,Param}] = [_Args]) ->
-	{PoolName, MongoDbHost, MongoDbPort, MongoDbDatabase, MongodbConnNum} = Param,
-	RestartStrategy = one_for_one,
-	MaxRestarts = 1000,
-	MaxSecondsBetweenRestarts = 3600,
+    {ok, {SupFlags, PoolSpecs}};
+init([{single, Param}] = [_Args]) ->
+    {PoolName, MongoDbHost, MongoDbPort, MongoDbDatabase, MongodbConnNum} = Param,
+    RestartStrategy = one_for_one,
+    MaxRestarts = 1000,
+    MaxSecondsBetweenRestarts = 3600,
 
-	SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
+    SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 
-	Pools = [
-		{PoolName, [
-			{size, MongodbConnNum},
-			{max_overflow, 30}
-		],
-			[{MongoDbHost, MongoDbPort, MongoDbDatabase}]%%[{ReplSet,MongoDbDatabase}]
-		}
-	],
+    Pools = [
+        {PoolName, [
+            {size, MongodbConnNum},
+            {max_overflow, 30}
+        ],
+            [{MongoDbHost, MongoDbPort, MongoDbDatabase}]%%[{ReplSet,MongoDbDatabase}]
+        }
+    ],
 
-	PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
-		PoolArgs = [{name, {local, Name}},
-			{worker_module, mongodberl_worker}] ++ SizeArgs,
-		poolboy:child_spec(Name, PoolArgs, WorkerArgs)
-	end, Pools),
+    PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
+        PoolArgs = [{name, {local, Name}},
+            {worker_module, mongodberl_worker}] ++ SizeArgs,
+        poolboy:child_spec(Name, PoolArgs, WorkerArgs)
+                          end, Pools),
 
-	{ok, {SupFlags, PoolSpecs}}.
+    {ok, {SupFlags, PoolSpecs}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 execute(PoolPid, Cmd) ->
-	poolboy:transaction(PoolPid, fun(Worker) ->
-		case gen_server:call(Worker, rs_connect) of
-			{ok,Pid,RsConn,DB} ->
-				case Cmd of
-					{get, Item, Key} ->
-						try
-							{ok,PrimConn}=mongoc:primary(Pid,RsConn),
-							{ok,{Doc}} = mongoc:find_one(Pid, {DB,PrimConn},apps, {to_bin(binary_to_list(Key))}),
-							case bson:lookup(Item, Doc) of
-								{Value} ->
-									?DEBUG("worker: ~p~n ~p~n", [Value, Pid]),
-									{true, Value};
-								_Else ->
-									?ERROR("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
-									{false, _Else}
-							end
-						catch _:X ->
-							{false, <<"fail">>,X}
-						end;
-					_ ->
-						{false, <<"cmd_not_supported">>}
-				end;
-			Error ->
-				Error
-		end
-	end).
+    poolboy:transaction(PoolPid, fun(Worker) ->
+        case gen_server:call(Worker, rs_connect) of
+            {ok, Pid, RsConn, DB} ->
+                case Cmd of
+                    {get, Item, Key} ->
+                        try
+                            {ok, PrimConn} = mongoc:primary(Pid, RsConn),
+                            {ok, {Doc}} = mongoc:find_one(Pid, {DB, PrimConn}, apps,
+                                {to_bin(binary_to_list(Key))}),
+                            case bson:lookup(Item, Doc) of
+                                {Value} ->
+                                    ?DEBUG("worker: ~p~n ~p~n", [Value, Pid]),
+                                    {true, Value};
+                                _Else ->
+                                    ?ERROR("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
+                                    {false, _Else}
+                            end
+                        catch _:X ->
+                            {false, <<"fail">>, X}
+                        end;
+                    _ ->
+                        {false, <<"cmd_not_supported">>}
+                end;
+            Error ->
+                Error
+        end
+                                 end).
 
 to_bin(L) ->
-	to_bin(L, []).
+    to_bin(L, []).
 to_bin([], Acc) ->
-	iolist_to_binary(lists:reverse(Acc));
+    iolist_to_binary(lists:reverse(Acc));
 to_bin([C1, C2 | Rest], Acc) ->
-	to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
+    to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
 
 dehex(C) when C >= $0, C =< $9 ->
-	C - $0;
+    C - $0;
 dehex(C) when C >= $a, C =< $f ->
-	C - $a + 10;
+    C - $a + 10;
 dehex(C) when C >= $A, C =< $F ->
-	C - $A + 10.
+    C - $A + 10.
 
 
