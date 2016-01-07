@@ -25,12 +25,12 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-    mongodb_pid,
     mongodb_single_args,
     mongodb_replset,
     mongodb_rsConn,
     mongodb_singleConn,
-    mongodb_dbName
+    mongodb_dbName,
+    mongodb_connection_type
 }).
 
 
@@ -67,12 +67,14 @@ start_link(MongoInfo) ->
 -spec(init(Args :: term()) ->
     {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
-init([[{Host, Port, MongoDatabase}]] = _MongoInfo) ->
+%MongodbArg :: {single,"host:port"}
+init([[{single, MongodbArg, MongoDatabase}]] = _MongoInfo) ->
     process_flag(trap_exit, true),
-    {ok, #state{mongodb_single_args = {Host, Port}, mongodb_dbName = MongoDatabase}};%%{ok,Pid}=mongoc:start_link(),
-init([[{ReplSet, MongoDatabase}]] = _MongoInfo) ->
+    {ok, #state{mongodb_single_args = MongodbArg, mongodb_dbName = MongoDatabase, mongodb_connection_type = single}};%%{ok,Pid}=mongoc:start_link(),
+%%ReplSet :: {repl,["host1:port1","host2:port2", "host3:port3"]}
+init([[{replset, ReplSet, MongoDatabase}]] = _MongoInfo) ->
     process_flag(trap_exit, true),
-    {ok, #state{mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase}}.
+    {ok, #state{mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase, mongodb_connection_type = replset}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -92,28 +94,29 @@ init([[{ReplSet, MongoDatabase}]] = _MongoInfo) ->
 %%----------------------------------------------------------
 %%add
 %%----------------------------------------------------------
-handle_call(rs_connect, _From, State = #state{mongodb_rsConn = undefined, mongodb_pid = undefined, mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase}) ->
-    {ok, Pid} = mongoc:start_link(),
-    case mongoc:rs_connect(Pid, ReplSet, []) of
-        {ok, RsConn} ->
-            {reply, {ok, Pid, RsConn, MongoDatabase}, State#state{mongodb_rsConn = RsConn, mongodb_pid = Pid}};
-        {error, Reason} ->
-            {reply, {error, Reason}, State}
-    end;
-handle_call(rs_connect, _From, State = #state{mongodb_rsConn = RSConn, mongodb_pid = Pid, mongodb_dbName = MongoDatabase}) ->
-    {reply, {ok, Pid, RSConn, MongoDatabase}, State};
-handle_call(connect, _From, State = #state{mongodb_pid = undefined}) ->
-    {Host, Port} = State#state.mongodb_single_args,
-    Database = State#state.mongodb_dbName,
-    case mongoc:connect(Host, Port, list_to_binary(Database)) of
-        {ok, Conn} ->
-            {reply, {ok, Conn}, State#state{mongodb_singleConn = Conn}};
-        {error, Error} ->
-            {reply, {error, Error}, State}
-    end;
+%%-----------------------------------------------------------
+handle_call(rs_connect, _From, State = #state{mongodb_rsConn = undefined, mongodb_replset = ReplSet, mongodb_dbName = MongoDatabase}) ->
+    {ReplSetName, Hosts} = ReplSet,
+    mongodb:replicaSets(ReplSetName, Hosts),
+    mongodb:connect(ReplSetName),
+    Mongo = mongoapi:new(ReplSetName, mongodberl:make_sure_binary(MongoDatabase)),
+    {reply, {ok, Mongo}, State#state{mongodb_rsConn = Mongo}};
 
-handle_call(connect, _From, State = #state{mongodb_pid = Pid}) ->
-    {reply, {ok, Pid}, State};
+handle_call(rs_connect, _From, State = #state{mongodb_rsConn = Mongo}) ->
+    {reply, {ok, Mongo}, State};%%case mongodb:is_connected(ReplSetName) of  TODO erlmongo has bug for this api
+
+handle_call(connect, _From, State = #state{mongodb_singleConn = undefined, mongodb_single_args = Args, mongodb_dbName = MongoDatabase}) ->
+    {SingleName, Host} = Args,
+    mongodb:singleServer(SingleName, Host),
+    mongodb:connect(SingleName),
+    Mongo = mongoapi:new(SingleName, mongodberl:make_sure_binary(MongoDatabase)),
+    {reply, {ok, Mongo}, State#state{mongodb_singleConn = Mongo}};
+
+handle_call(connect, _From, State = #state{mongodb_singleConn = Mongo}) ->
+    {reply, {ok, Mongo}, State};
+
+handle_call(get_connection_type, _From, State = #state{mongodb_connection_type = Type}) ->
+    {reply, {ok, Type}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -147,10 +150,10 @@ handle_cast(_Request, State) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_info({'DOWN', _Ref, _Type, _Pid, _Info}, State) ->
-    {noreply, State#state{mongodb_pid = undefined}};
+    {noreply, State#state{mongodb_rsConn = undefined}};
 
 handle_info({'EXIT', _Pid, _Info}, State) ->
-    {noreply, State#state{mongodb_pid = undefined}};
+    {noreply, State#state{mongodb_rsConn  = undefined}};
 
 handle_info(_Info, State) ->
     {noreply, State}.

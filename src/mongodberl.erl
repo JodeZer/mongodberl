@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1, get_value_from_mongo/3]).
+-export([start_link/1, get_value_from_mongo/3, make_sure_binary/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -64,6 +64,8 @@ start_link(Args) ->
 %%-----------------------------------------------
 %%change Args to contain a Replset
 %%------------------------------------------------
+%%Param :: {repl,["host1:port1","host2:port2", "host3:port3"]}
+%%["abj-mongorep-2.yunba.io:27017","abj-mongorep-1.yunba.io:27017","abj-mongo-1.yunba.io:22227017"]
 init([{replset, Param}] = [_Args]) ->
     {PoolName, ReplSet, MongoDbDatabase, MongodbConnNum} = Param,
     RestartStrategy = one_for_one,
@@ -77,7 +79,7 @@ init([{replset, Param}] = [_Args]) ->
             {size, MongodbConnNum},
             {max_overflow, 30}
         ],
-            [{ReplSet, MongoDbDatabase}]
+            [{replset, ReplSet, MongoDbDatabase}]
         }
     ],
 
@@ -89,7 +91,7 @@ init([{replset, Param}] = [_Args]) ->
 
     {ok, {SupFlags, PoolSpecs}};
 init([{single, Param}] = [_Args]) ->
-    {PoolName, MongoDbHost, MongoDbPort, MongoDbDatabase, MongodbConnNum} = Param,
+    {PoolName, MongodbArg, MongoDbDatabase, MongodbConnNum} = Param,
     RestartStrategy = one_for_one,
     MaxRestarts = 1000,
     MaxSecondsBetweenRestarts = 3600,
@@ -101,7 +103,7 @@ init([{single, Param}] = [_Args]) ->
             {size, MongodbConnNum},
             {max_overflow, 30}
         ],
-            [{MongoDbHost, MongoDbPort, MongoDbDatabase}]%%[{ReplSet,MongoDbDatabase}]
+            [{single, MongodbArg, MongoDbDatabase}]
         }
     ],
 
@@ -116,19 +118,25 @@ init([{single, Param}] = [_Args]) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
 execute(PoolPid, Cmd) ->
     poolboy:transaction(PoolPid, fun(Worker) ->
-        case gen_server:call(Worker, rs_connect) of
-            {ok, Pid, RsConn, DB} ->
+        Req = case gen_server:call(Worker, get_connection_type) of
+                  {ok, replset} ->
+                      rs_connect;
+                  {ok, single} ->
+                      connect
+              end,
+        case gen_server:call(Worker, Req) of
+            {ok, Mongo} ->
                 case Cmd of
                     {get, Item, Key} ->
                         try
-                            {ok, PrimConn} = mongoc:primary(Pid, RsConn),
-                            {ok, {Doc}} = mongoc:find_one(Pid, {DB, PrimConn}, apps,
-                                {to_bin(binary_to_list(Key))}),
-                            case bson:lookup(Item, Doc) of
-                                {Value} ->
-                                    ?DEBUG("worker: ~p~n ~p~n", [Value, Pid]),
+                            Mongo:set_encode_style(mochijson),
+                            {ok, Doc} = Mongo:findOne("apps", [{"_id", {oid, make_sure_binary(Key)}}]),
+                            case proplists:get_value(make_sure_binary(Item), Doc) of
+                                Value when is_binary(Value) ->
+                                    ?DEBUG("worker: ~p~n", [Value]),
                                     {true, Value};
                                 _Else ->
                                     ?ERROR("find ~p from mongodb failed ~p, ~p~n", [Item, Key, _Else]),
@@ -145,6 +153,7 @@ execute(PoolPid, Cmd) ->
         end
                                  end).
 
+
 to_bin(L) ->
     to_bin(L, []).
 to_bin([], Acc) ->
@@ -159,4 +168,16 @@ dehex(C) when C >= $a, C =< $f ->
 dehex(C) when C >= $A, C =< $F ->
     C - $A + 10.
 
+
+make_sure_binary(Data) ->
+    if
+        is_list(Data) ->
+            list_to_binary(Data);
+        is_integer(Data) ->
+            integer_to_binary(Data);
+        is_atom(Data) ->
+            atom_to_binary(Data, latin1);
+        true ->
+            Data
+    end.
 
